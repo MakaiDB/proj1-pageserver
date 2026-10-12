@@ -20,6 +20,7 @@ logging.basicConfig(format='%(levelname)s:%(message)s',
 log = logging.getLogger(__name__)
 # Logging level may be overridden by configuration 
 
+import os
 import socket    # Basic TCP/IP communication on the internet
 import _thread   # Response computation runs concurrently with main program
 
@@ -77,6 +78,7 @@ STATUS_FORBIDDEN = "HTTP/1.0 403 Forbidden\n\n"
 STATUS_NOT_FOUND = "HTTP/1.0 404 Not Found\n\n"
 STATUS_NOT_IMPLEMENTED = "HTTP/1.0 401 Not Implemented\n\n"
 
+DOCROOT = "pages"  # Where we look for .html and .css files
 
 def respond(sock):
     """
@@ -91,8 +93,31 @@ def respond(sock):
 
     parts = request.split()
     if len(parts) > 1 and parts[0] == "GET":
-        transmit(STATUS_OK, sock)
-        transmit(CAT, sock)
+        path = parts[1]
+
+        if ".." in path or "~" in path or "//" in path:
+            # (c) forbidden: check before touching the filesystem
+            transmit(STATUS_FORBIDDEN, sock)
+            transmit("Forbidden: {}\n".format(path), sock)
+
+        elif path.endswith(".html") or path.endswith(".css"):
+            filepath = os.path.join(DOCROOT, path.lstrip("/"))
+            if os.path.isfile(filepath):
+                # found it, and send it back to the client
+                with open(filepath, "r", encoding="utf-8") as f:
+                    content = f.read()
+                transmit(STATUS_OK, sock)
+                transmit(content, sock)
+            else:
+                # right kind of file, but it isn't there
+                transmit(STATUS_NOT_FOUND, sock)
+                transmit("Not found: {}\n".format(path), sock)
+
+        else:
+            # Not .html or .css, which the assignment doesn't cover
+            transmit(STATUS_NOT_FOUND, sock)
+            transmit("Not found: {}\n".format(path), sock)
+            
     else:
         log.info("Unhandled request: {}".format(request))
         transmit(STATUS_NOT_IMPLEMENTED, sock)
@@ -136,7 +161,9 @@ def get_options():
 
 
 def main():
+    global DOCROOT
     options = get_options()
+    options.DOCROOT = DOCROOT
     port = options.PORT
     if options.DEBUG:
         log.setLevel(logging.DEBUG)
